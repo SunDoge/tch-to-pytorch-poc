@@ -1,0 +1,20 @@
+[package]
+name = "tch-to-python-poc"
+version = "0.1.0"
+authors = ["SunDoge <384813529@qq.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tch = "0.2.0"
+lazy_static = "1.4.0"
+dlpack = {git = "https://github.com/SunDoge/dlpack-rs.git"}
+
+[dependencies.pyo3]
+version = "0.11.1"
+features = ["extension-module"]
+
+[lib]
+name = "tch"
+crate-type = ["rlib", "cdylib"]
