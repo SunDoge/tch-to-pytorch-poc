@@ -1,9 +1,9 @@
 use dlpack::*;
+use lazy_static::lazy_static;
 use pyo3::prelude::*;
 use pyo3::wrap_pyfunction;
+use std::ffi::{c_void, CStr, CString};
 use tch::{kind, Device, Kind, Tensor};
-use lazy_static::lazy_static;
-use std::ffi::{CString, CStr, c_void};
 
 lazy_static! {
     static ref NAME: CString = CString::new("dltensor").unwrap();
@@ -71,12 +71,14 @@ unsafe extern "C" fn deleter(x: *mut DLManagedTensor) {
     println!("DLManagedTensor deleter");
 
     let ctx = (*x).manager_ctx as *mut Tensor;
-    std::mem::drop(ctx);
+    ctx.drop_in_place();
+    (*x).dl_tensor.shape.drop_in_place();
+    (*x).dl_tensor.strides.drop_in_place();
+    x.drop_in_place();
 }
 
 unsafe extern "C" fn destructor(o: *mut pyo3::ffi::PyObject) {
     println!("PyCapsule destructor");
-
 
     // let ptr = pyo3::ffi::PyCapsule_GetPointer(o, name.as_ptr()) as *mut dlpack::DLManagedTensor;
 
@@ -97,16 +99,14 @@ unsafe extern "C" fn destructor(o: *mut pyo3::ffi::PyObject) {
     // (*ptr).deleter.unwrap()(ptr);
 }
 
-#[pyfunction]
-fn eye(n: i64) -> PyResult<*mut pyo3::ffi::PyObject> {
-    let x = Tensor::eye(n, kind::FLOAT_CPU);
+fn tensor_to_dlpack(x: Tensor) -> *mut pyo3::ffi::PyObject {
     let bx = Box::new(x);
     let dlt = tensor_to_dltensor(&bx);
     // dbg!(dlt);
     let dlmt = DLManagedTensor {
         dl_tensor: dlt,
         manager_ctx: Box::into_raw(bx) as *mut c_void,
-        deleter: Some(deleter)
+        deleter: Some(deleter),
     };
 
     let bdlmt = Box::new(dlmt);
@@ -119,13 +119,33 @@ fn eye(n: i64) -> PyResult<*mut pyo3::ffi::PyObject> {
         )
     };
 
+    ptr
+}
+
+#[pyfunction]
+fn eye(n: i64) -> PyResult<*mut pyo3::ffi::PyObject> {
+    let x = Tensor::eye(n, kind::FLOAT_CPU);
+    let ptr = tensor_to_dlpack(x);
     Ok(ptr)
+}
+
+#[pyfunction]
+fn print(x: PyObject) -> PyResult<()> {
+    let ptr = unsafe { pyo3::ffi::PyCapsule_GetPointer(x.into_ptr(), NAME.as_ptr()) as *mut DLManagedTensor };
+
+    let t: DLTensor = unsafe { (*ptr).dl_tensor };
+
+    dbg!(t);
+
+    // dbg!(ptr);
+    Ok(())
 }
 
 /// A Python module implemented in Rust.
 #[pymodule]
 fn tch(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_wrapped(wrap_pyfunction!(eye))?;
+    m.add_wrapped(wrap_pyfunction!(print))?;
     Ok(())
 }
 
